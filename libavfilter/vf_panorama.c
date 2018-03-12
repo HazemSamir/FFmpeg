@@ -34,12 +34,12 @@ enum Projections {
 };
 
 enum Faces {
-    LEFT,
-    FRONT,
     RIGHT,
+    LEFT,
     TOP,
-    BACK,
     DOWN,
+    FRONT,
+    BACK,
 };
 
 struct XYRemap {
@@ -152,27 +152,27 @@ static void to_cube3x2_xyz(int i, int j, int face, double ew, double eh,
 
     if (face == BACK) {
         *x = -1     ;
-        *y =  3. - a;
+        *y =  5. - a;
         *z =  3. - b;
     } else if (face == LEFT) {
-        *x =  a  - 1;
+        *x =  a  - 3;
         *y = -1     ;
         *z =  1. - b;
     } else if (face == FRONT) {
         *x =  1     ;
         *y =  a  - 3;
-        *z =  1. - b;
+        *z =  3. - b;
     } else if (face == RIGHT) {
-        *x =  5. - a;
+        *x =  1. - a;
         *y =  1     ;
         *z =  1. - b;
     } else if (face == TOP) {
-        *x =  b  - 3;
-        *y =  a  - 1;
+        *x =  b  - 1;
+        *y =  a  - 5;
         *z =  1     ;
     } else if (face == DOWN) {
         *x = -b  + 3;
-        *y =  a  - 5;
+        *y =  a  - 1;
         *z = -1     ;
     }
 }
@@ -185,27 +185,27 @@ static void to_cube6x1_xyz(int i, int j, int face, double ew, double eh,
 
     if (face == BACK) {
         *x = -1     ;
-        *y =  9. - a;
+        *y = 11. - a;
         *z =  1. - b;
     } else if (face == LEFT) {
-        *x =  a  - 1;
+        *x =  a  - 3;
         *y = -1     ;
         *z =  1. - b;
     } else if (face == FRONT) {
         *x =  1     ;
-        *y =  a  - 3;
+        *y =  a  - 9;
         *z =  1. - b;
     } else if (face == RIGHT) {
-        *x =  5. - a;
+        *x =  1. - a;
         *y =  1     ;
         *z =  1. - b;
     } else if (face == TOP) {
         *x =  b  - 1;
-        *y =  a  - 7;
+        *y =  a  - 5;
         *z =  1     ;
     } else if (face == DOWN) {
         *x = -b  + 1;
-        *y =  a  - 11;
+        *y =  a  - 7;
         *z = -1     ;
     }
 }
