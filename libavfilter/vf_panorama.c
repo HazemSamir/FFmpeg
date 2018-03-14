@@ -218,7 +218,7 @@ static void to_sphere_xyz(double theta, double phi, double *x, double *y, double
 }
 
 static void locate(double axis, double x, double y, double rad,
-                   double rw, double rh, int *ox, int *oy)
+                   double rw, double rh, double *ox, double *oy)
 {
     *ox = rw / axis * (x * cos(rad) - y * sin(rad));
     *oy = rh / axis * (x * sin(rad) + y * cos(rad));
@@ -355,8 +355,8 @@ static int config_output(AVFilterLink *outlink)
             int in_height = s->inplaneheight[p];
             double res;
             int rh, rw;
-            int face, i, j;
-            int ox, oy;
+            int face, i, j, ui, vi, u2, v2;
+            double vf, uf, mu, nu;
 
             if (s->in == CUBEMAP_3_2) {
                 res = M_PI_4 / (width / 3) / 10.0;
@@ -403,40 +403,56 @@ static int config_output(AVFilterLink *outlink)
 
                     switch (face) {
                     case LEFT:
-                        locate(z, x, y, M_PI,   rw, rh, &ox, &oy);
+                        locate(z, x, y, M_PI,   rw, rh, &uf, &vf);
                         break;
                     case FRONT:
-                        locate(x, z, y, 0.,     rw, rh, &ox, &oy);
+                        locate(x, z, y, 0.,     rw, rh, &uf, &vf);
                         break;
                     case RIGHT:
-                        locate(z, y, x, M_PI_2, rw, rh, &ox, &oy);
+                        locate(z, y, x, M_PI_2, rw, rh, &uf, &vf);
                         break;
                     case TOP:
-                        locate(y, z, x, M_PI,   rw, rh, &ox, &oy);
+                        locate(y, z, x, M_PI,   rw, rh, &uf, &vf);
                         break;
                     case BACK:
-                        locate(x, y, z,-M_PI_2, rw, rh, &ox, &oy);
+                        locate(x, y, z,-M_PI_2, rw, rh, &uf, &vf);
                         break;
                     case DOWN:
-                        locate(y, x, z,-M_PI_2, rw, rh, &ox, &oy);
+                        locate(y, x, z,-M_PI_2, rw, rh, &uf, &vf);
                         break;
                     }
+
+                    ui = floor(uf);
+                    vi = floor(vf);
+                    u2 = ui + 1;
+                    v2 = vi + 1;
+                    mu = uf - ui;
+                    nu = vf - vi;
+                    r->vi = av_clip(vi, 0, 2 * rh - 1);
+                    r->ui = av_clip(ui, 0, 2 * rw - 1);
+                    r->v2 = av_clip(v2, 0, 2 * rh - 1);
+                    r->u2 = av_clip(u2, 0, 2 * rw - 1);
+                    r->a = (1 - mu) * (1 - nu);
+                    r->b =  mu * (1 - nu);
+                    r->c = (1 - mu) * nu;
+                    r->d = mu * nu;
 
                     if (s->in == CUBEMAP_3_2) {
                         if (face > 2) {
-                            oy += height / 2;
+                            r->vi += height / 2;
+                            r->v2 += height / 2;
                         }
-                        ox += (in_width / 3) * (face % 3);
+                        r->ui += (in_width / 3) * (face % 3);
+                        r->u2 += (in_width / 3) * (face % 3);
                     } else if (s->in == CUBEMAP_6_1) {
-                        ox += (in_width / 6) * face;
+                        r->ui += (in_width / 6) * face;
+                        r->u2 += (in_width / 6) * face;
                     }
 
-                    r->vi = oy;
-                    r->ui = ox;
                 }
             }
         }
-        s->panorama = nearest;
+        s->panorama = bilinear;
     } else if (s->in == CUBEMAP_3_2 && s->out == CUBEMAP_6_1) {
         for (p = 0; p < s->nb_planes; p++) {
             int width = s->planewidth[p];
