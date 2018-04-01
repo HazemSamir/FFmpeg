@@ -45,6 +45,8 @@ enum Faces {
 struct XYRemap {
     int vi, ui;
     int v2, u2;
+    int v3, u3;
+    int v4, u4;
     double a, b, c, d;
 };
 
@@ -112,9 +114,9 @@ static int bilinear(PanoramaContext *s,
             const struct XYRemap *r = &remap[y * width + x];
 
             A = src[r->vi * in_linesize + r->ui];
-            B = src[r->vi * in_linesize + r->u2];
-            C = src[r->v2 * in_linesize + r->ui];
-            D = src[r->v2 * in_linesize + r->u2];
+            B = src[r->v2 * in_linesize + r->u2];
+            C = src[r->v3 * in_linesize + r->u3];
+            D = src[r->v4 * in_linesize + r->u4];
             *d++ = round(A * r->a + B * r->b + C * r->c + D * r->d);
         }
     }
@@ -242,6 +244,71 @@ static inline int in_range(double rd, double small, double large, double res)
           &&  smaller(rd, large, res);
 }
 
+static void to_cube_uv(double theta, double phi, double res, int in_height,
+                       int in_width, int rh, int rw, int in_format, int *u, int *v)
+{
+    double theta_norm, phi_threshold, x, y, z;
+    int face;
+    int ox, oy;
+
+    to_sphere_xyz(theta, phi, &x, &y, &z);
+    if (in_range(theta, -M_PI_4, M_PI_4, res)) {
+        face = FRONT;
+        theta_norm = theta;
+    } else if (in_range(theta, -(M_PI_2 + M_PI_4), -M_PI_4, res)) {
+        face = LEFT;
+        theta_norm = theta + M_PI_2;
+    } else if (in_range(theta, M_PI_4, M_PI_2 + M_PI_4, res)) {
+        face = RIGHT;
+        theta_norm = theta - M_PI_2;
+    } else {
+        face = BACK;
+        theta_norm = theta + ((theta > 0) ? -M_PI : M_PI);
+    }
+
+    phi_threshold = atan2(1., 1. / cos(theta_norm));
+    if (phi > phi_threshold) {
+        face = DOWN;
+    } else if (phi < -phi_threshold) {
+        face = TOP;
+    } else {
+        ;
+    }
+
+    switch (face) {
+    case LEFT:
+        locate(z, x, y, M_PI,   rw, rh, &ox, &oy);
+        break;
+    case FRONT:
+        locate(x, z, y, 0.,     rw, rh, &ox, &oy);
+        break;
+    case RIGHT:
+        locate(z, y, x, M_PI_2, rw, rh, &ox, &oy);
+        break;
+    case TOP:
+        locate(y, z, x, M_PI,   rw, rh, &ox, &oy);
+        break;
+    case BACK:
+        locate(x, y, z,-M_PI_2, rw, rh, &ox, &oy);
+        break;
+    case DOWN:
+        locate(y, x, z,-M_PI_2, rw, rh, &ox, &oy);
+        break;
+    }
+
+    if (in_format == CUBEMAP_3_2) {
+        if (face > 2) {
+            oy += in_height / 2;
+        }
+        ox += (in_width / 3) * (face % 3);
+    } else if (in_format == CUBEMAP_6_1) {
+        ox += (in_width / 6) * face;
+    }
+
+    *v = oy;
+    *u = ox;
+}
+
 static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
@@ -336,8 +403,12 @@ static int config_output(AVFilterLink *outlink)
                     nu = vf - vi;
                     r->vi = av_clip(vi, 0, in_height - 1);
                     r->ui = ui % in_width;
-                    r->v2 = av_clip(v2, 0, in_height - 1);
-                    r->u2 = u2 % in_width;
+                    r->v4 = av_clip(v2, 0, in_height - 1);
+                    r->u4 = u2 % in_width;
+                    r->v2 = r->vi;
+                    r->u2 = r->u4;
+                    r->v3 = r->vi;
+                    r->u3 = r->ui;
                     r->a = (1 - mu) * (1 - nu);
                     r->b =  mu * (1 - nu);
                     r->c = (1 - mu) * nu;
@@ -348,15 +419,14 @@ static int config_output(AVFilterLink *outlink)
         s->panorama = bilinear;
     } else if ((s->in == CUBEMAP_3_2 || s->in == CUBEMAP_6_1) && s->out == EQUIRECTANGULAR) {
         for (p = 0; p < s->nb_planes; p++) {
-            double theta, theta_norm, phi, phi_threshold, x, y, z;
+            double theta, phi, x, y;
             int height = s->planeheight[p];
             int width = s->planewidth[p];
             int in_width = s->inplanewidth[p];
             int in_height = s->inplaneheight[p];
             double res;
             int rh, rw;
-            int face, i, j;
-            int ox, oy;
+            int i, j;
 
             if (s->in == CUBEMAP_3_2) {
                 res = M_PI_4 / (width / 3) / 10.0;
@@ -376,67 +446,19 @@ static int config_output(AVFilterLink *outlink)
                     y = (2. * j) / height - 1.;
                     theta = x * M_PI;
                     phi   = y * M_PI_2;
-                    to_sphere_xyz(theta, phi, &x, &y, &z);
+                    to_cube_uv(theta-res, phi-res, res, in_height, in_width, rh, rw, s->in, &r->ui, &r->vi);
+                    to_cube_uv(theta-res, phi-res, res, in_height, in_width, rh, rw, s->in, &r->u2, &r->v2);
+                    to_cube_uv(theta+res, phi-res, res, in_height, in_width, rh, rw, s->in, &r->u3, &r->v3);
+                    to_cube_uv(theta+res, phi-res, res, in_height, in_width, rh, rw, s->in, &r->u4, &r->v4);
 
-                    if (in_range(theta, -M_PI_4, M_PI_4, res)) {
-                        face = FRONT;
-                        theta_norm = theta;
-                    } else if (in_range(theta, -(M_PI_2 + M_PI_4), -M_PI_4, res)) {
-                        face = LEFT;
-                        theta_norm = theta + M_PI_2;
-                    } else if (in_range(theta, M_PI_4, M_PI_2 + M_PI_4, res)) {
-                        face = RIGHT;
-                        theta_norm = theta - M_PI_2;
-                    } else {
-                        face = BACK;
-                        theta_norm = theta + ((theta > 0) ? -M_PI : M_PI);
-                    }
-
-                    phi_threshold = atan2(1., 1. / cos(theta_norm));
-                    if (phi > phi_threshold) {
-                        face = DOWN;
-                    } else if (phi < -phi_threshold) {
-                        face = TOP;
-                    } else {
-                        ;
-                    }
-
-                    switch (face) {
-                    case LEFT:
-                        locate(z, x, y, M_PI,   rw, rh, &ox, &oy);
-                        break;
-                    case FRONT:
-                        locate(x, z, y, 0.,     rw, rh, &ox, &oy);
-                        break;
-                    case RIGHT:
-                        locate(z, y, x, M_PI_2, rw, rh, &ox, &oy);
-                        break;
-                    case TOP:
-                        locate(y, z, x, M_PI,   rw, rh, &ox, &oy);
-                        break;
-                    case BACK:
-                        locate(x, y, z,-M_PI_2, rw, rh, &ox, &oy);
-                        break;
-                    case DOWN:
-                        locate(y, x, z,-M_PI_2, rw, rh, &ox, &oy);
-                        break;
-                    }
-
-                    if (s->in == CUBEMAP_3_2) {
-                        if (face > 2) {
-                            oy += height / 2;
-                        }
-                        ox += (in_width / 3) * (face % 3);
-                    } else if (s->in == CUBEMAP_6_1) {
-                        ox += (in_width / 6) * face;
-                    }
-
-                    r->vi = oy;
-                    r->ui = ox;
+                    r->a = 0.25;
+                    r->b = 0.25;
+                    r->c = 0.25;
+                    r->d = 0.25;
                 }
             }
         }
-        s->panorama = nearest;
+        s->panorama = bilinear;
     } else if (s->in == CUBEMAP_3_2 && s->out == CUBEMAP_6_1) {
         for (p = 0; p < s->nb_planes; p++) {
             int width = s->planewidth[p];
